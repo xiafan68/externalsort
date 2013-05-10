@@ -113,9 +113,9 @@ public class InvertedIndex<PostElement> {
 	}
 
 	public static void main(String[] args) throws IOException {
-		FileUtil.delete("test");
+		FileUtil.delete("test1");
 		InvertedIndex<NodeIDPostElement> index = new InvertedIndex<NodeIDPostElement>(
-				new File("test"),
+				new File("test1"),
 				NodeIDPostElement.binding,
 				(Class<Comparator<byte[]>>) NodeIDPostElement.NodeComparator.class
 						.asSubclass(Comparator.class));
