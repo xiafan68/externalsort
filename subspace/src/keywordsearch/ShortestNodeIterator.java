@@ -16,6 +16,7 @@ import org.neo4j.graphdb.RelationshipType;
 import org.neo4j.kernel.Traversal;
 
 import util.Constant;
+import util.PerformanceTracker;
 import xiafan.util.Pair;
 import xiafan.util.Triple;
 
@@ -89,16 +90,19 @@ public class ShortestNodeIterator implements Iterator<Pair<Long, Float>> {
 
 		Triple<Long, Integer, Float> pre = queue.poll();
 		if (pre.arg1 < maxDepth) {
+			PerformanceTracker.instance.incre(PerformanceTracker.EXPLORED, 1);
 			Node node = graphDb.getNodeById(pre.arg0);
 			Expander expander = null;
 			if (rel != null)
-				expander = Traversal.expanderForTypes(rel, Direction.OUTGOING);
+				expander = Traversal.expanderForTypes(rel, Direction.INCOMING);
 			else {
-				expander = Traversal.expanderForAllTypes(Direction.OUTGOING);
+				expander = Traversal.expanderForAllTypes(Direction.INCOMING);
 			}
 
 			Iterator<Relationship> iter = expander.expand(node).iterator();
 			while (iter.hasNext()) {
+				PerformanceTracker.instance
+						.incre(PerformanceTracker.TOUCHED, 1);
 				Relationship rel = iter.next();
 				/*
 				 * TODO 这里错了，应该是distance(source, rel.getEndNode.getId())
@@ -106,19 +110,19 @@ public class ShortestNodeIterator implements Iterator<Pair<Long, Float>> {
 				 * 
 				 * 可不可能两个节点已经被访问过，然后再次以更短的距离访问。
 				 */
-				float preDist = state.distance(node.getId(), rel.getEndNode()
+				float preDist = state.distance(node.getId(), rel.getStartNode()
 						.getId());
-				if (!visitedNode.contains(rel.getEndNode().getId())) {
+				if (!visitedNode.contains(rel.getStartNode().getId())) {
 					float curRelWeight = (Float) rel
 							.getProperty(Constant.WEIGHT);
 
-					visitedNode.add(rel.getEndNode().getId());
+					visitedNode.add(rel.getStartNode().getId());
 					if (preDist > pre.arg2 + curRelWeight) {
 						// 当前的距离更短，应该是有问题的
 						queue.add(new Triple<Long, Integer, Float>(rel
-								.getEndNode().getId(), pre.arg1 + 1, pre.arg2
+								.getStartNode().getId(), pre.arg1 + 1, pre.arg2
 								+ curRelWeight));
-						state.addDistance(source, rel.getEndNode().getId(),
+						state.addDistance(source, rel.getStartNode().getId(),
 								node.getId(), pre.arg2 + curRelWeight);
 					}
 				}

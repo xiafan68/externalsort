@@ -1,11 +1,14 @@
 package keywordsearch;
 
+import graph.Graph;
+import graph.KeywordSearch;
+
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.PriorityQueue;
 
 import keywordsearch.Neo4jKeywordSearch.DjskState;
@@ -13,7 +16,6 @@ import keywordsearch.Neo4jKeywordSearch.DjskState;
 import org.neo4j.cypher.ExecutionEngine;
 import org.neo4j.graphdb.GraphDatabaseService;
 import org.neo4j.graphdb.Node;
-import org.neo4j.graphdb.Transaction;
 import org.neo4j.graphdb.index.Index;
 import org.neo4j.graphdb.index.IndexManager;
 import org.neo4j.helpers.collection.MapUtil;
@@ -22,10 +24,13 @@ import org.neo4j.kernel.EmbeddedGraphDatabase;
 import util.Constant;
 import xiafan.util.Pair;
 
-import graph.Graph;
-import graph.KeywordSearch;
-import graph.MyRelationshipTypes;
-
+/**
+ * 1. 计算每个节点的权重，怎么算？每个keywords在每个doc里面可以算一个权重，那么每个node对应的权重是什么呢？ 
+ * 2. 如何计算每棵树的权重？
+ * 3. 如何设计iterator，进行图上的遍历 
+ * @author xiafan
+ * 
+ */
 public class Neo4jBiKeywordSearch implements KeywordSearch {
 	GraphDatabaseService graphDb;
 	Index<Node> nodeIndex;
@@ -43,30 +48,6 @@ public class Neo4jBiKeywordSearch implements KeywordSearch {
 				MapUtil.stringMap(IndexManager.PROVIDER, "lucene", "type",
 						"fulltext", "to_low_case", "true", "analyzer",
 						"org.apache.lucene.analysis.SimpleAnalyzer"));
-	}
-
-	@Override
-	public Node addNode(String key, Map<String, String> property,
-			String indexField) {
-		Transaction tnx = graphDb.beginTx();
-		Node node = graphDb.createNode();
-		node.setProperty(Constant.KEY, key);
-		for (Entry<String, String> entry : property.entrySet()) {
-			node.setProperty(entry.getKey(), entry.getValue());
-		}
-		nodeIndex.add(node, indexField, node.getProperty(indexField));
-		nodeIndex.add(node, Constant.KEY, key);
-		tnx.success();
-		tnx.finish();
-		return node;
-	}
-
-	@Override
-	public void addEdge(Node start, Node end) {
-		Transaction tnx = graphDb.beginTx();
-		start.createRelationshipTo(end, MyRelationshipTypes.KNOWS);
-		tnx.success();
-		tnx.finish();
 	}
 
 	@Override
@@ -147,6 +128,52 @@ public class Neo4jBiKeywordSearch implements KeywordSearch {
 				return true;
 			return false;
 		}
+	}
+
+	@Override
+	public void addEdge(Node start, Node end, float weight) {
+		// TODO Auto-generated method stub
+
+	}
+
+	@Override
+	public Node addNode(String key, boolean iindexKey,
+			Map<String, String> property, String indexField) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public void close() {
+		// TODO Auto-generated method stub
+
+	}
+
+	@Override
+	public void addSubgraph(
+			List<Pair<Pair<String, Boolean>, Pair<String, Boolean>>> edges,
+			List<Float> weights) throws IOException {
+		// TODO Auto-generated method stub
+
+	}
+
+	@Override
+	public List<Graph> search(String field, String keywords, int topK)
+			throws IOException {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public Node getNodeById(long nodeID) {
+		// TODO Auto-generated method stub
+		return null;
+	}
+
+	@Override
+	public List<Node> getNodes(String key) {
+		// TODO Auto-generated method stub
+		return null;
 	}
 
 }

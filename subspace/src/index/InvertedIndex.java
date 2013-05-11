@@ -17,6 +17,7 @@ import org.wltea.analyzer.core.IKSegmenter;
 import org.wltea.analyzer.core.Lexeme;
 
 import xiafan.file.FileUtil;
+import xiafan.util.LatencyTracker;
 
 import com.sleepycat.bind.tuple.TupleBinding;
 import com.sleepycat.je.Cursor;
@@ -37,6 +38,9 @@ import com.sleepycat.je.OperationStatus;
 public class InvertedIndex<PostElement> {
 	private static Logger logger = LoggerFactory.getLogger(InvertedIndex.class);
 	DbEnv env;
+	private LatencyTracker segLatencyTracker = new LatencyTracker();
+	private LatencyTracker retrievelLatencyTracker = new LatencyTracker();
+	private LatencyTracker putLatencyTracker = new LatencyTracker();
 
 	public InvertedIndex(File envHome_, TupleBinding binding_,
 			Class<Comparator<byte[]>> nodeCompClass_) {
@@ -44,11 +48,12 @@ public class InvertedIndex<PostElement> {
 	}
 
 	public void init() {
-		env.setup(false, true, 1024 * 1024 * 1);
+		env.setup(false, true, 1024 * 1024 * 512);
 	}
 
 	public Map<String, List<PostElement>> search(String keywords)
 			throws IOException {
+		long startTime = System.currentTimeMillis();
 		IKSegmenter segmenter = new IKSegmenter(new StringReader(keywords),
 				true);
 		Lexeme token = null;
@@ -56,7 +61,13 @@ public class InvertedIndex<PostElement> {
 		while (null != (token = segmenter.next())) {
 			words.add(token.getLexemeText());
 		}
-		return search((String[]) words.toArray());
+		segLatencyTracker.addMicro(System.currentTimeMillis() - startTime);
+		startTime = System.currentTimeMillis();
+		Map<String, List<PostElement>> ret = null;
+		ret = search(words.toArray(new String[words.size()]));
+		retrievelLatencyTracker
+				.addMicro(System.currentTimeMillis() - startTime);
+		return ret;
 	}
 
 	public Map<String, List<PostElement>> search(String[] keywords) {
@@ -67,10 +78,11 @@ public class InvertedIndex<PostElement> {
 		Cursor cursor = env.getNodeDb().openCursor(null, null);
 		// Pair<Integer, ByteBuffer> oKeyPair = deComposeKey(Arrays.copyOf(
 		// theKey.getData(), theKey.getData().length));
-		for (String keyword : keywords) {
-			theKey = new DatabaseEntry(keyword.getBytes());
-			List<PostElement> postList = new LinkedList<PostElement>();
-			try {
+		try {
+			for (String keyword : keywords) {
+				theKey = new DatabaseEntry(keyword.getBytes());
+				List<PostElement> postList = new LinkedList<PostElement>();
+
 				OperationStatus retVal = cursor.getSearchKey(theKey, theData,
 						LockMode.DEFAULT);
 				while (retVal == OperationStatus.SUCCESS) {
@@ -81,31 +93,42 @@ public class InvertedIndex<PostElement> {
 							LockMode.DEFAULT);
 				}
 				ret.put(keyword, postList);
-			} catch (Exception ex) {
-				logger.error(ex.toString());
 			}
+		} catch (Exception ex) {
+			logger.error(ex.toString());
+		} finally {
+			cursor.close();
 		}
 		return ret;
 	}
 
 	public void put(String keywords, PostElement element) throws IOException {
+		long startTime = System.currentTimeMillis();
 		IKSegmenter segmenter = new IKSegmenter(new StringReader(keywords),
 				true);
 		Lexeme token = null;
+		List<String> terms = new LinkedList<String>();
 		while (null != (token = segmenter.next())) {
-			put_intern(token.getLexemeText(), element);
+			terms.add(token.getLexemeText());
 		}
+		segLatencyTracker.addMicro(System.currentTimeMillis() - startTime);
+		for (String term : terms)
+			put_intern(term, element);
 	}
 
 	public void put_intern(String keyword, PostElement element) {
+		long startTime = System.currentTimeMillis();
 		Cursor cursor = env.getNodeDb().openCursor(null, null);
 		OperationStatus retVal = null;
 		DatabaseEntry theData = new DatabaseEntry();
 		DatabaseEntry theKey = new DatabaseEntry(keyword.getBytes());
-
 		env.getNodeBinding().objectToEntry(element, theData);
 		if (cursor.getSearchBoth(theKey, theData, LockMode.DEFAULT) == OperationStatus.NOTFOUND)
 			retVal = cursor.put(theKey, theData);
+
+		cursor.close();
+
+		putLatencyTracker.addMicro(System.currentTimeMillis() - startTime);
 	}
 
 	public void close() {
@@ -124,5 +147,17 @@ public class InvertedIndex<PostElement> {
 		index.put("i am just a test", new NodeIDPostElement(2));
 		System.out.println(index.search(new String[] { "test" }));
 		System.out.println(index.search(new String[] { "am" }));
+	}
+
+	public void printPerformance() {
+		System.out.println(String.format(
+				"recent put:%f;\nrecent seg:%f;\nrecent retrieve:%f\n",
+				putLatencyTracker.getRecentLatencyMicros(),
+				segLatencyTracker.getRecentLatencyMicros(),
+				retrievelLatencyTracker.getRecentLatencyMicros()));
+	}
+
+	public void flush() {
+		env.flush();
 	}
 }

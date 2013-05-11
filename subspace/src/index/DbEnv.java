@@ -84,8 +84,9 @@ public class DbEnv {
 		myDbConfig.setDeferredWrite(true);
 		myDbConfig.setDuplicateComparator(nodeCompClass);
 		// myDbConfig.setCacheMode(CacheMode.DYNAMIC);
-		mutableConfig.setCacheSize(cacheSize);
-
+		//mutableConfig.setCacheSize(cacheSize);
+		//mutableConfig.setCacheSize(1024*1024*1024);
+		mutableConfig.setCachePercent(20);
 		// myEnvConfig.setSortedDuplicates(true);
 		myDbConfig.setSortedDuplicates(duplicatesAllowed);
 
@@ -94,10 +95,10 @@ public class DbEnv {
 		env.setMutableConfig(mutableConfig);
 		// Now open, or create and open, our databases
 		nodeDb = env.openDatabase(null, "NodesDB", myDbConfig);
-		PreloadConfig preloadConfig = new PreloadConfig();
+		//PreloadConfig preloadConfig = new PreloadConfig();
 		// preloadConfig.setMaxBytes(1024*1024*128).setMaxMillisecs(1000*60);
 		// preloadConfig.setMaxBytes(cacheSize * 2).setMaxMillisecs(1000*60);
-		nodeDb.preload(preloadConfig);
+		//nodeDb.preload(preloadConfig);
 	}
 
 	public void flush() {

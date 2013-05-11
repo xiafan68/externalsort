@@ -1,5 +1,6 @@
 package graph;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import org.neo4j.graphdb.Node;
@@ -29,5 +30,12 @@ public interface KeywordSearch {
 
 	void addSubgraph(
 			List<Pair<Pair<String, Boolean>, Pair<String, Boolean>>> edges,
-			List<Float> weights);
+			List<Float> weights) throws IOException;
+
+	List<Graph> search(String field, String keywords, int topK)
+			throws IOException;
+
+	public Node getNodeById(long nodeID);
+
+	public List<Node> getNodes(String key);
 }

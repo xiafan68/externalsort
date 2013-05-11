@@ -3,7 +3,7 @@ package keywordsearch;
 import graph.Graph;
 import graph.KeywordSearch;
 import graph.MyRelationshipTypes;
-
+import index.ComposeKeyBtree;
 import index.InvertedIndex;
 import index.NodeIDPostElement;
 
@@ -23,15 +23,10 @@ import org.neo4j.graphdb.GraphDatabaseService;
 import org.neo4j.graphdb.Node;
 import org.neo4j.graphdb.Relationship;
 import org.neo4j.graphdb.Transaction;
-import org.neo4j.graphdb.index.Index;
-import org.neo4j.graphdb.index.IndexHits;
-import org.neo4j.graphdb.index.IndexManager;
-import org.neo4j.helpers.collection.MapUtil;
 import org.neo4j.kernel.EmbeddedGraphDatabase;
 
 import util.Constant;
-import util.DBLPPaper;
-import util.DblpFileReader;
+import util.PerformanceTracker;
 import xiafan.file.FileUtil;
 import xiafan.util.Pair;
 
@@ -45,8 +40,8 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 	GraphDatabaseService graphDb;
 	// Index<Node> nodeIndex;
 	InvertedIndex<NodeIDPostElement> textIndex;
-
-	Index<Node> keyIndex;
+	ComposeKeyBtree<NodeIDPostElement> keyIndex;
+	// Index<Node> keyIndex;
 	ExecutionEngine engine;
 
 	public Neo4jKeywordSearch(String path) {
@@ -61,6 +56,13 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 		graphDb = new EmbeddedGraphDatabase(path, config);
 		textIndex = new InvertedIndex<NodeIDPostElement>(
 				new File(path, "textindex"),
+				NodeIDPostElement.binding,
+				(Class<Comparator<byte[]>>) NodeIDPostElement.NodeComparator.class
+						.asSubclass(Comparator.class));
+		textIndex.init();
+
+		keyIndex = new ComposeKeyBtree(path + "/keyIndex", 1024 * 1024 * 512);
+		keyIndex.init(
 				NodeIDPostElement.binding,
 				(Class<Comparator<byte[]>>) NodeIDPostElement.NodeComparator.class
 						.asSubclass(Comparator.class));
@@ -118,15 +120,19 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 			graphDb.shutdown();
 		}
 	*/
+
+	int opCount = 1;
+
 	/**
 	 * map : a->b pair : startNode, whether index the key
 	 * 
 	 * @param subgraph
+	 * @throws IOException
 	 */
 	@Override
 	public void addSubgraph(
 			List<Pair<Pair<String, Boolean>, Pair<String, Boolean>>> edges,
-			List<Float> weights) {
+			List<Float> weights) throws IOException {
 		Transaction tnx = graphDb.beginTx();
 		Node startNode = null;
 		Node endNode = null;
@@ -137,17 +143,22 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 				startNode = graphDb.createNode();
 				startNode.setProperty(Constant.KEY, entry.arg0.arg0);
 				// nodeIndex.add(startNode, Constant.KEY, entry.arg0.arg0);
-				// if (entry.arg0.arg1)
-				// keyIndex.add(startNode, Constant.KEY, entry.arg0.arg0);
+				textIndex.put(entry.arg0.arg0,
+						new NodeIDPostElement(startNode.getId()));
+				if (entry.arg0.arg1)
+					keyIndex.put(entry.arg0.arg0, new NodeIDPostElement(
+							startNode.getId()));
 			}
 
 			endNode = this.getNode(entry.arg1.arg0);
 			if (endNode == null) {
 				endNode = graphDb.createNode();
 				endNode.setProperty(Constant.KEY, entry.arg1.arg0);
-				// nodeIndex.add(endNode, Constant.KEY, entry.arg1.arg0);
-				// if (entry.arg1.arg1)
-				// keyIndex.add(endNode, Constant.KEY, entry.arg1.arg0);
+				textIndex.put(entry.arg1.arg0,
+						new NodeIDPostElement(endNode.getId()));
+				if (entry.arg0.arg1)
+					keyIndex.put(entry.arg1.arg0,
+							new NodeIDPostElement(endNode.getId()));
 			}
 
 			float weight = iter.next();
@@ -157,6 +168,10 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 		}
 		tnx.success();
 		tnx.finish();
+		if (opCount++ % 1000 == 0) {
+			textIndex.flush();
+			keyIndex.flush();
+		}
 	}
 
 	@Override
@@ -183,7 +198,7 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 			textIndex.put(key, new NodeIDPostElement(node.getId()));
 			// nodeIndex.add(node, Constant.KEY, key);
 			if (indexKey)
-				keyIndex.add(node, Constant.KEY, key);
+				keyIndex.put(key, new NodeIDPostElement(node.getId()));
 			tnx.success();
 		} catch (IOException e) {
 			tnx.failure();
@@ -199,7 +214,7 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 		Node node = graphDb.createNode();
 		node.setProperty("post", post);
 		// nodeIndex.add(node, "post", node.getProperty("post"));
-		keyIndex.add(node, Constant.KEY, post);
+		keyIndex.put(post, new NodeIDPostElement(node.getId()));
 		tnx.success();
 		tnx.finish();
 
@@ -218,43 +233,37 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 
 	/**
 	 * return topK graph
+	 * 
+	 * @throws IOException
 	 */
 	@Override
-	public List<Graph> search(String field, String[] keywords) {
-		return search(field, keywords, 10);
-	}
-
-	@Override
-	public List<Graph> search(String field, String[] keywords, int topK) {
+	public List<Graph> search(String field, String keywords, int topK)
+			throws IOException {
 		DjskState state = new DjskState();
 		// HashMap<String, IndexHits<Node>> postMap = new HashMap<String,
 		// IndexHits<Node>>();
 		List<ShortestNodeIterator> iterList = new LinkedList<ShortestNodeIterator>();
-		HitBroad broad = new HitBroad(keywords.length);
+		HitBroad broad;
 
-		// 初始化hitbroad和每个node对应的iterator
-		for (String keyword : keywords) {
-			/*IndexHits<Node> hits = nodeIndex.query(field, keyword);
-			while (hits.hasNext()) {
-				Node nextNode = hits.next();
-				broad.addKeyword(nextNode.getId(), keyword);
-				iterList.add(new ShortestNodeIterator(nextNode.getId(),
-						graphDb, state, MyRelationshipTypes.KNOWS, 8));
-			}
-			postMap.put(keyword, hits);
-			*/
-			Map<String, List<NodeIDPostElement>> results = textIndex
-					.search(keywords);
+		Map<String, List<NodeIDPostElement>> results = textIndex
+				.search(keywords);
+
+		if (Constant.DEBUG) {
 			for (Entry<String, List<NodeIDPostElement>> entry : results
 					.entrySet()) {
-				for (NodeIDPostElement element : entry.getValue()) {
-					broad.addKeyword(element.getId(), entry.getKey());
-					iterList.add(new ShortestNodeIterator(element.getId(),
-							graphDb, state, null, 8));
-				}
+				System.out.println(String.format("key:%s;size:%d;",
+						entry.getKey(), entry.getValue().size()));
 			}
 		}
 
+		broad = new HitBroad(results.size());
+		for (Entry<String, List<NodeIDPostElement>> entry : results.entrySet()) {
+			for (NodeIDPostElement element : entry.getValue()) {
+				broad.addKeyword(element.getId(), entry.getKey());
+				iterList.add(new ShortestNodeIterator(element.getId(), graphDb,
+						state, null, 8));
+			}
+		}
 		// HashMap<Long, HashSet<Long>> nodeHits = new HashMap<Long,
 		// HashSet<Long>>();
 		HashSet<Long> result = new HashSet<Long>();
@@ -277,6 +286,56 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 		return constructGraphs(state, broad, result);
 	}
 
+	/**
+	 * return topK graph
+	 */
+	@Override
+	public List<Graph> search(String field, String[] keywords) {
+		return search(field, keywords, 10);
+	}
+
+	@Override
+	public List<Graph> search(String field, String[] keywords, int topK) {
+		PerformanceTracker.instance.startExplore();
+		DjskState state = new DjskState();
+		// HashMap<String, IndexHits<Node>> postMap = new HashMap<String,
+		// IndexHits<Node>>();
+		List<ShortestNodeIterator> iterList = new LinkedList<ShortestNodeIterator>();
+		HitBroad broad = new HitBroad(keywords.length);
+
+		Map<String, List<NodeIDPostElement>> results = textIndex
+				.search(keywords);
+		for (Entry<String, List<NodeIDPostElement>> entry : results.entrySet()) {
+			for (NodeIDPostElement element : entry.getValue()) {
+				broad.addKeyword(element.getId(), entry.getKey());
+				iterList.add(new ShortestNodeIterator(element.getId(), graphDb,
+						state, null, 8));
+			}
+		}
+		// HashMap<Long, HashSet<Long>> nodeHits = new HashMap<Long,
+		// HashSet<Long>>();
+		HashSet<Long> result = new HashSet<Long>();
+
+		// 探索每个keyword，按照距离最短的方式进行探索
+		ShortestNodeIterator smallestIter = null;
+		int retNum = 0;
+		do {
+			smallestIter = shortestIter(iterList);
+			if (smallestIter != null) {
+				Pair<Long, Float> item = smallestIter.next();
+				broad.hit(item.arg0, smallestIter.getSource());
+				if (broad.validate(item.arg0)) {
+					// 当前探索的这个节点已经能够到达所有的keyword，可以返回
+					result.add(item.arg0);
+					retNum++;
+				}
+			}
+		} while (smallestIter != null && retNum < topK);
+		List<Graph> ret = constructGraphs(state, broad, result);
+		PerformanceTracker.instance.finishExplore();
+		return ret;
+	}
+
 	private List<Graph> constructGraphs(DjskState state, HitBroad broad,
 			HashSet<Long> result) {
 		List<Graph> graphes = new LinkedList<Graph>();
@@ -289,7 +348,7 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 				long pre = -1;
 				do {
 					pre = state.preNode(source, temp);
-					graph.addEdge(pre, temp);
+					graph.addEdge(temp, pre);
 					temp = pre;
 				} while (pre != source);
 			}
@@ -412,18 +471,19 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 
 	@Override
 	public Node getNode(String key) {
-		IndexHits<Node> hits = keyIndex.get(Constant.KEY, key);
-		if (hits.hasNext())
-			return hits.next();
-		else
+		List<NodeIDPostElement> hits = keyIndex.get(key);
+		if (!hits.isEmpty()) {
+			return graphDb.getNodeById(hits.get(0).getId());
+		} else
 			return null;
 	}
 
+	@Override
 	public List<Node> getNodes(String key) {
-		IndexHits<Node> hits = keyIndex.get(Constant.KEY, key);
 		List<Node> ret = new LinkedList<Node>();
-		while (hits.hasNext()) {
-			ret.add(hits.next());
+		List<NodeIDPostElement> hits = keyIndex.get(key);
+		for (NodeIDPostElement elem : hits) {
+			ret.add(graphDb.getNodeById(elem.getId()));
 		}
 		return ret;
 	}
@@ -431,5 +491,20 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 	@Override
 	public void close() {
 		graphDb.shutdown();
+		keyIndex.close();
+		textIndex.close();
+	}
+
+	public void printPerform() {
+		System.out.println(String.format(
+				"btree: recent put:%f;\nrecent retrieve:%f\n",
+				keyIndex.getRecentPutLatency(),
+				keyIndex.getRecentRetrievelLatency()));
+		textIndex.printPerformance();
+	}
+
+	@Override
+	public Node getNodeById(long id) {
+		return graphDb.getNodeById(id);
 	}
 }
