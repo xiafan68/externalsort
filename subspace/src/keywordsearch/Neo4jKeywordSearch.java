@@ -231,23 +231,9 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 		tnx.finish();
 	}
 
-	/**
-	 * return topK graph
-	 * 
-	 * @throws IOException
-	 */
-	@Override
-	public List<Graph> search(String field, String keywords, int topK)
-			throws IOException {
+	private List<Graph> searchIntern(
+			Map<String, List<NodeIDPostElement>> results, int topK) {
 		DjskState state = new DjskState();
-		// HashMap<String, IndexHits<Node>> postMap = new HashMap<String,
-		// IndexHits<Node>>();
-		List<ShortestNodeIterator> iterList = new LinkedList<ShortestNodeIterator>();
-		HitBroad broad;
-
-		Map<String, List<NodeIDPostElement>> results = textIndex
-				.search(keywords);
-
 		if (Constant.DEBUG) {
 			for (Entry<String, List<NodeIDPostElement>> entry : results
 					.entrySet()) {
@@ -256,55 +242,8 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 			}
 		}
 
-		broad = new HitBroad(results.size());
-		for (Entry<String, List<NodeIDPostElement>> entry : results.entrySet()) {
-			for (NodeIDPostElement element : entry.getValue()) {
-				broad.addKeyword(element.getId(), entry.getKey());
-				iterList.add(new ShortestNodeIterator(element.getId(), graphDb,
-						state, null, 8));
-			}
-		}
-		// HashMap<Long, HashSet<Long>> nodeHits = new HashMap<Long,
-		// HashSet<Long>>();
-		HashSet<Long> result = new HashSet<Long>();
-
-		// 探索每个keyword，按照距离最短的方式进行探索
-		ShortestNodeIterator smallestIter = null;
-		int retNum = 0;
-		do {
-			smallestIter = shortestIter(iterList);
-			if (smallestIter != null) {
-				Pair<Long, Float> item = smallestIter.next();
-				broad.hit(item.arg0, smallestIter.getSource());
-				if (broad.validate(item.arg0)) {
-					// 当前探索的这个节点已经能够到达所有的keyword，可以返回
-					result.add(item.arg0);
-					retNum++;
-				}
-			}
-		} while (smallestIter != null && retNum < topK);
-		return constructGraphs(state, broad, result);
-	}
-
-	/**
-	 * return topK graph
-	 */
-	@Override
-	public List<Graph> search(String field, String[] keywords) {
-		return search(field, keywords, 10);
-	}
-
-	@Override
-	public List<Graph> search(String field, String[] keywords, int topK) {
-		PerformanceTracker.instance.startExplore();
-		DjskState state = new DjskState();
-		// HashMap<String, IndexHits<Node>> postMap = new HashMap<String,
-		// IndexHits<Node>>();
+		HitBroad broad = new HitBroad(results.size());
 		List<ShortestNodeIterator> iterList = new LinkedList<ShortestNodeIterator>();
-		HitBroad broad = new HitBroad(keywords.length);
-
-		Map<String, List<NodeIDPostElement>> results = textIndex
-				.search(keywords);
 		for (Entry<String, List<NodeIDPostElement>> entry : results.entrySet()) {
 			for (NodeIDPostElement element : entry.getValue()) {
 				broad.addKeyword(element.getId(), entry.getKey());
@@ -332,6 +271,43 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 			}
 		} while (smallestIter != null && retNum < topK);
 		List<Graph> ret = constructGraphs(state, broad, result);
+
+		return ret;
+	}
+
+	/**
+	 * return topK graph
+	 * 
+	 * @throws IOException
+	 */
+	@Override
+	public List<Graph> search(String field, String keywords, int topK)
+			throws IOException {
+		PerformanceTracker.instance.startExplore();
+		// HashMap<String, IndexHits<Node>> postMap = new HashMap<String,
+		// IndexHits<Node>>();
+
+		Map<String, List<NodeIDPostElement>> results = textIndex
+				.search(keywords);
+		List<Graph> ret = searchIntern(results, topK);
+		PerformanceTracker.instance.finishExplore();
+		return ret;
+	}
+
+	/**
+	 * return topK graph
+	 */
+	@Override
+	public List<Graph> search(String field, String[] keywords) {
+		return search(field, keywords, 10);
+	}
+
+	@Override
+	public List<Graph> search(String field, String[] keywords, int topK) {
+		PerformanceTracker.instance.startExplore();
+		Map<String, List<NodeIDPostElement>> results = textIndex
+				.search(keywords);
+		List<Graph> ret = searchIntern(results, topK);
 		PerformanceTracker.instance.finishExplore();
 		return ret;
 	}

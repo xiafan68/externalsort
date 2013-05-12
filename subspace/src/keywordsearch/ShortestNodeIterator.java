@@ -22,7 +22,7 @@ import xiafan.util.Triple;
 
 /**
  * 每次选择priority queue中最前的节点进行扩展，然后返回最前面的节点。
- * 
+ * 这个iterator是针对每个keyword的
  * @author xiafan
  * 
  */
@@ -39,15 +39,14 @@ public class ShortestNodeIterator implements Iterator<Pair<Long, Float>> {
 
 	int maxDepth;
 	long source;
+	// nodeid, depth,weight
 	PriorityQueue<Triple<Long, Integer, Float>> queue = new PriorityQueue<Triple<Long, Integer, Float>>(
 			10, new Comparator<Triple<Long, Integer, Float>>() {
-
 				@Override
 				public int compare(Triple<Long, Integer, Float> arg0,
 						Triple<Long, Integer, Float> arg1) {
 					return (int) (arg0.arg2 - arg1.arg2);
 				}
-
 			});
 	GraphDatabaseService graphDb;
 	RelationshipType rel;
