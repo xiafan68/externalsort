@@ -13,12 +13,12 @@ import org.neo4j.helpers.collection.MapUtil;
  * indicating a reference) #! --- Abstract
  */
 public class DBLPPaper {
-	public String id;
-	public String title;
+	public String id = "";
+	public String title = "";
 	public List<String> authors = new LinkedList<String>();
-	public String year;
-	public String venue;
-	public String abstracts;
+	public String year = "";
+	public String venue = "";
+	public String abstracts = "";
 	public List<String> refIDs = new LinkedList<String>();
 
 	public Map<String, String> toMap() {
@@ -32,6 +32,7 @@ public class DBLPPaper {
 	public void addRef(String refID) {
 		refIDs.add(refID);
 	}
+
 	@Override
 	public String toString() {
 		return "DBLPPaper [id=" + id + ", title=" + title + ", author="

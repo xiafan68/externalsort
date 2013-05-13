@@ -24,7 +24,7 @@ public class DBLPTest {
 
 	private static List<Float> weights = new LinkedList<Float>();
 
-	private static List<Float> construct(int size) {
+	public static List<Float> construct(int size) {
 		/*
 		Integer listIndex = weightMap.ceilingKey(size);
 		if (listIndex == null) {

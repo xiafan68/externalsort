@@ -45,7 +45,11 @@ public class ShortestNodeIterator implements Iterator<Pair<Long, Float>> {
 				@Override
 				public int compare(Triple<Long, Integer, Float> arg0,
 						Triple<Long, Integer, Float> arg1) {
-					return (int) (arg0.arg2 - arg1.arg2);
+					if ((arg0.arg2 - arg1.arg2) > 0.0000000000001)
+						return 1;
+					else if ((arg0.arg2 - arg1.arg2) < -0.00000000001)
+						return -1;
+					return 0;
 				}
 			});
 	GraphDatabaseService graphDb;

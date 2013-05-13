@@ -1,4 +1,4 @@
-package keywordsearch;
+package keywordsearch.bidirection;
 
 import index.NodeIDPostElement;
 
@@ -26,7 +26,7 @@ import xiafan.util.Triple;
  *
  */
 public class BiSingleIterator implements
-		Iterator<Triple<Long, Integer, Float>>, PrestigeUpdateListener {
+		Iterator<Triple<Long, Integer, Float>>, NodeStateListener {
 	BiState state = null;
 	// nodeid, depth,weight
 	PriorityQueue<Triple<Long, Integer, Float>> queue = new PriorityQueue<Triple<Long, Integer, Float>>(
@@ -34,7 +34,11 @@ public class BiSingleIterator implements
 				@Override
 				public int compare(Triple<Long, Integer, Float> arg0,
 						Triple<Long, Integer, Float> arg1) {
-					return (int) (arg0.arg2 - arg1.arg2);
+					if ((arg1.arg2 - arg0.arg2) > 0.0000000000001)
+						return 1;
+					else if ((arg1.arg2 - arg0.arg2) < -0.00000000001)
+						return -1;
+					return 0;
 				}
 			});
 	HashMap<Long, Triple<Long, Integer, Float>> queueIndex = new HashMap<Long, Triple<Long, Integer, Float>>();
@@ -64,7 +68,6 @@ public class BiSingleIterator implements
 	public Triple<Long, Integer, Float> next() {
 		Triple<Long, Integer, Float> triple = queue.poll();
 		queueIndex.remove(triple.arg0);
-		visitedNode.add(triple.arg0);
 		PerformanceTracker.instance.incre(PerformanceTracker.TOUCHED, 1);
 		return triple;
 	}
@@ -72,6 +75,7 @@ public class BiSingleIterator implements
 	public void addNode(Triple<Long, Integer, Float> newNode) {
 		if (!visitedNode.contains(newNode.arg0)) {
 			PerformanceTracker.instance.incre(PerformanceTracker.EXPLORED, 1);
+			visitedNode.add(newNode.arg0);
 			queue.add(newNode);
 			queueIndex.put(newNode.arg0, newNode);
 		}
@@ -88,7 +92,7 @@ public class BiSingleIterator implements
 	 * @param node
 	 * @param prestige
 	 */
-	public void updatePrestige(long node) {
+	public void notifyStateChange(long node) {
 		if (!queueIndex.containsKey(node))
 			return;
 		Triple<Long, Integer, Float> triple = queueIndex.get(node);
@@ -122,7 +126,8 @@ public class BiSingleIterator implements
 		// record the ancestor of the key node
 		HashMap<Long, HashMap<String, Long>> reversePath = new HashMap<Long, HashMap<String, Long>>();
 
-		public BiState(Map<String, List<NodeIDPostElement>> postLists) {
+		public BiState(Map<String, List<NodeIDPostElement>> postLists,
+				Map<Long, Float> nodePres) {
 			for (Entry<String, List<NodeIDPostElement>> entry : postLists
 					.entrySet()) {
 				for (NodeIDPostElement ele : entry.getValue()) {
@@ -130,18 +135,26 @@ public class BiSingleIterator implements
 							ele.getId(), 0.0f);
 					// TODO supply the prostige
 					setNodeFromKeywordPrestige(ele.getId(), entry.getKey(),
-							10.0f);
+							nodePres.get(ele.getId()) / entry.getValue().size());
 				}
 			}
 		}
 
-		List<PrestigeUpdateListener> listners = new LinkedList<PrestigeUpdateListener>();
+		List<NodeStateListener> presListners = new LinkedList<NodeStateListener>();
 
-		public void addListner(PrestigeUpdateListener listener) {
-			listners.add(listener);
+		public void addPrestigeListner(NodeStateListener listener) {
+			presListners.add(listener);
+		}
+
+		List<NodeStateListener> distListners = new LinkedList<NodeStateListener>();
+
+		public void addDistListner(NodeStateListener listener) {
+			distListners.add(listener);
 		}
 
 		public HashMap<String, Float> getHits(long node) {
+			if (!distToKeyword.containsKey(node))
+				return new HashMap<String, Float>();
 			return distToKeyword.get(node);
 		}
 
@@ -207,6 +220,15 @@ public class BiSingleIterator implements
 			return ret;
 		}
 
+		public float getNodeFromKeywordPrestige(long node, String keyword) {
+			float ret = 0.0f;
+			if (nodePrestige.containsKey(node)) {
+				if (nodePrestige.get(node).containsKey(keyword))
+					ret = nodePrestige.get(node).get(keyword);
+			}
+			return ret;
+		}
+
 		public void setNodeFromKeywordPrestige(long workingNode,
 				String keyword, float prestige) {
 			if (!nodePrestige.containsKey(workingNode)) {
@@ -248,6 +270,52 @@ public class BiSingleIterator implements
 			reversePath.get(pre).put(keyword, node);
 		}
 
+		private void propDist(long cur, String keyword) {
+			Queue<Long> seed = new LinkedList<Long>();
+			seed.add(cur);
+			while (!seed.isEmpty()) {
+				long workingNode = seed.poll();
+				float workingDist = getNodeToKeywordDist(workingNode, keyword);
+				HashMap<String, Long> childs = getChildren(workingNode);
+				if (childs.containsKey(keyword)) {
+					// child -> workingNode
+					// update dist from each keyword
+					long child = childs.get(keyword);
+					float newDist = getNodeToNodeDist(workingNode, child)
+							+ workingDist;
+					if (newDist < getNodeToKeywordDist(child, keyword)) {
+						seed.add(child);
+						setNodeToKeywordDist(child, keyword, workingNode,
+								newDist);
+						notifyDistChange(cur);
+					}
+				}
+			}
+		}
+
+		private void activate(long cur, String keyword) {
+			Queue<Long> seed = new LinkedList<Long>();
+			seed.add(cur);
+			while (!seed.isEmpty()) {
+				long workingNode = seed.poll();
+				float workingPres = getNodePres(workingNode);
+				HashMap<String, Long> childs = getChildren(workingNode);
+				if (childs.containsKey(keyword)) {
+					// child -> workingNode
+					// update dist from each keyword
+					long child = childs.get(keyword);
+					// setNodePres
+					if (getNodeFromKeywordPrestige(child, keyword) < workingPres
+							* STEP) {
+						seed.add(child);
+						setNodeFromKeywordPrestige(child, keyword, workingPres
+								* STEP);
+						notifyPresChange(child);
+					}
+				}
+			}
+		}
+
 		/**
 		 * cur is just explored by pre from keyword.
 		 * possible actions:
@@ -267,47 +335,35 @@ public class BiSingleIterator implements
 			for (Entry<String, Float> entry : getHits(pre).entrySet()) {
 				float curDist = getNodeToKeywordDist(cur, entry.getKey());
 				String keyword = entry.getKey();
-				float preDist = entry.getValue() + dist;
-
-				if (preDist < curDist) {
-					setNodeToKeywordDist(cur, keyword, pre, preDist);
-					// update all the distance and prestige of the successor of
-					// cur
-					Queue<Long> seed = new LinkedList<Long>();
-					seed.add(cur);
-					while (!seed.isEmpty()) {
-						long workingNode = seed.poll();
-						float workingPres = 0;
-						for (float pres : getNodePresMap(workingNode).values()) {
-							workingPres += pres;
-						}
-						float workingDist = getNodeToKeywordDist(workingNode,
-								keyword);
-						HashMap<String, Long> childs = getChildren(workingNode);
-
-						for (Entry<String, Long> child : childs.entrySet()) {
-							// ancestor -> workingNode
-							// update dist from each keyword
-							float newDist = getNodeToNodeDist(workingNode,
-									child.getValue()) + workingDist;
-							if (newDist < getNodeToKeywordDist(
-									child.getValue(), child.getKey())) {
-								seed.add(child.getValue());
-								// setNodePres
-								setNodeFromKeywordPrestige(child.getValue(),
-										child.getKey(), workingPres * STEP);
-
-								for (PrestigeUpdateListener listner : listners)
-									listner.updatePrestige(child.getValue());
-								setNodeToKeywordDist(child.getValue(), keyword,
-										workingNode, newDist);
-							}
-						}
-					}
+				float newDist = entry.getValue() + dist;
+				if (newDist < curDist) {
+					setNodeToKeywordDist(cur, keyword, pre, newDist);
+					notifyDistChange(cur);
+					propDist(cur, keyword);
 				}
+
+				if (getNodeFromKeywordPrestige(cur, keyword) < getNodeFromKeywordPrestige(
+						pre, keyword) * STEP) {
+					setNodeFromKeywordPrestige(cur, keyword,
+							getNodeFromKeywordPrestige(pre, keyword) * STEP);
+					notifyPresChange(cur);
+					activate(cur, keyword);
+				}
+
 			}
+		}
+
+		public void notifyPresChange(long node) {
+			for (NodeStateListener listner : presListners)
+				listner.notifyStateChange(node);
+		}
+
+		public void notifyDistChange(long node) {
+			for (NodeStateListener listner : distListners)
+				listner.notifyStateChange(node);
 		}
 
 		private static final float STEP = 0.5f;
 	}
+
 }

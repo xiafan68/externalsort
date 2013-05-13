@@ -1,4 +1,4 @@
-package keywordsearch;
+package keywordsearch.bidirection;
 
 import graph.Graph;
 import graph.KeywordSearch;
@@ -6,6 +6,7 @@ import graph.MyRelationshipTypes;
 import index.ComposeKeyBtree;
 import index.InvertedIndex;
 import index.NodeIDPostElement;
+import index.PresElement;
 
 import java.io.File;
 import java.io.IOException;
@@ -19,7 +20,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.PriorityQueue;
 
-import keywordsearch.BiSingleIterator.BiState;
+import keywordsearch.bidirection.BiSingleIterator.BiState;
 
 import org.neo4j.cypher.ExecutionEngine;
 import org.neo4j.graphdb.Direction;
@@ -32,7 +33,10 @@ import org.neo4j.kernel.EmbeddedGraphDatabase;
 import org.neo4j.kernel.Traversal;
 
 import util.Constant;
+import util.DBLPPaper;
+import util.DblpFileReader;
 import util.PerformanceTracker;
+import xiafan.file.FileUtil;
 import xiafan.util.Pair;
 import xiafan.util.Triple;
 
@@ -48,6 +52,8 @@ public class Neo4jBiKeywordSearch implements KeywordSearch {
 	GraphDatabaseService graphDb;
 	InvertedIndex<NodeIDPostElement> textIndex;
 	ComposeKeyBtree<NodeIDPostElement> keyIndex;
+	ComposeKeyBtree<PresElement> nodePres;
+
 	ExecutionEngine engine;
 
 	PriorityQueue<Pair<Long, Float>> incomingQueue = new PriorityQueue<Pair<Long, Float>>();
@@ -56,7 +62,6 @@ public class Neo4jBiKeywordSearch implements KeywordSearch {
 	public static final float ANEAL = 0.5f;
 
 	public Neo4jBiKeywordSearch(String path) {
-		graphDb = new EmbeddedGraphDatabase(path);
 		Map<String, String> config = new HashMap<String, String>();
 		config.put("neostore.nodestore.db.mapped_memory", "100M");
 		config.put("neostore.relationshipstore.db.mapped_memory", "200M");
@@ -73,11 +78,18 @@ public class Neo4jBiKeywordSearch implements KeywordSearch {
 						.asSubclass(Comparator.class));
 		textIndex.init();
 
-		keyIndex = new ComposeKeyBtree(path + "/keyIndex", 1024 * 1024 * 512);
+		keyIndex = new ComposeKeyBtree<NodeIDPostElement>(path + "/keyIndex",
+				1024 * 1024 * 512, false);
 		keyIndex.init(
 				NodeIDPostElement.binding,
 				(Class<Comparator<byte[]>>) NodeIDPostElement.NodeComparator.class
-						.asSubclass(Comparator.class));
+						.asSubclass(Comparator.class), true);
+
+		nodePres = new ComposeKeyBtree<PresElement>(path + "/nodePres",
+				1024 * 1024 * 512, false);
+		nodePres.init(PresElement.binding,
+				(Class<Comparator<byte[]>>) PresElement.NodeComparator.class
+						.asSubclass(Comparator.class), true);
 	}
 
 	@Override
@@ -129,11 +141,34 @@ public class Neo4jBiKeywordSearch implements KeywordSearch {
 
 	private List<Graph> searchIntern(
 			Map<String, List<NodeIDPostElement>> results, int topK) {
+		if (Constant.DEBUG_INTERM) {
+			for (Entry<String, List<NodeIDPostElement>> entry : results
+					.entrySet()) {
+				System.out.println(String.format("key:%s;size:%d;",
+						entry.getKey(), entry.getValue().size()));
+			}
+		}
 		List<Graph> ret = null;
-		BiState state = new BiState(results);
+		HashSet<Long> seeds = new HashSet<Long>();
+
+		for (Entry<String, List<NodeIDPostElement>> entry : results.entrySet()) {
+			if (entry.getValue().size() == 0) // never return a result but
+												// explore many nodes
+				return new LinkedList<Graph>();
+			for (NodeIDPostElement ele : entry.getValue()) {
+				seeds.add(ele.getId());
+			}
+		}
+
+		Map<Long, Float> nodePres = getNodePres(seeds);
+		BiState state = new BiState(results, nodePres);
 		BiSingleIterator outIter = new BiSingleIterator(state);
 		BiSingleIterator inIter = new BiSingleIterator(state);
 		inIter.init();
+		state.addPrestigeListner(outIter);
+		state.addPrestigeListner(inIter);
+		CandCollector collector = new CandCollector();
+		state.addDistListner(collector);
 
 		HashSet<Long> roots = new HashSet<Long>();
 		while (outIter.hasNext() || inIter.hasNext()) {
@@ -155,14 +190,7 @@ public class Neo4jBiKeywordSearch implements KeywordSearch {
 			} else {
 				dir = Direction.INCOMING;
 				triple = inIter.next();
-			}
-
-			if (state.getAncestors(triple.arg0).size() == results.size()) {
-				roots.add(triple.arg0);
-				if (roots.size() > topK) {
-					// TODO just break now?
-					break;
-				}
+				outIter.addNode(triple);
 			}
 
 			// explore the neighbors
@@ -171,26 +199,93 @@ public class Neo4jBiKeywordSearch implements KeywordSearch {
 				Expander expander = null;
 				expander = Traversal.expanderForAllTypes(dir);
 				Iterator<Relationship> iter = expander.expand(node).iterator();
-				while (iter.hasNext()) {
+				while (iter.hasNext() && roots.size() < topK) {
 					Relationship rel = iter.next();
-					Node newNode = rel.getEndNode();
+					Node newNode = null;
 					float dist = (Float) rel.getProperty(Constant.WEIGHT);
 					if (dir == Direction.INCOMING) {
+						newNode = rel.getStartNode();
 						state.explore(newNode.getId(), triple.arg0, dist);
+						/*	if (state.getAncestors(newNode.getId()).size() == results
+									.size()) {
+								System.out.println(collector.getCands().contains(
+										triple.arg0));
+								roots.add(newNode.getId());
+							} else*/
 						inIter.addNode(new Triple<Long, Integer, Float>(newNode
 								.getId(), triple.arg1 + 1, state
 								.getNodePres(newNode.getId())));
 					} else {
+						newNode = rel.getEndNode();
 						state.explore(triple.arg0, newNode.getId(), dist);
 						outIter.addNode(new Triple<Long, Integer, Float>(
 								newNode.getId(), triple.arg1 + 1, state
 										.getNodePres(newNode.getId())));
 					}
 				}
+				/*	if (dir == Direction.OUTGOING
+							&& state.getAncestors(triple.arg0).size() == results
+									.size()) {
+						System.out.println(collector.getCands().contains(
+								triple.arg0));
+						roots.add(triple.arg0);
+					}*/
+
+				// TODO need to test all the candidates here
+				for (Long cands : collector.getCands()) {
+					if (state.getAncestors(cands).size() == results.size()) {
+						roots.add(cands);
+					}
+				}
+				collector.getCands().clear();
+
+				if (Constant.DEBUG_PROCESS) {
+					System.out.println(String.format(
+							"direction:%s; node: %d;page rank:%f; hits:%s",
+							dir.toString(), triple.arg0,
+							this.getNodePres(triple.arg0),
+							state.getHits(triple.arg0).toString()));
+				}
 			}
+			if (roots.size() >= topK)
+				break;
 		}
 		ret = constructGraphs(state, roots);
 		return ret;
+	}
+
+	private static class CandCollector implements NodeStateListener {
+		HashSet<Long> cands = new HashSet<Long>();
+
+		@Override
+		public void notifyStateChange(long node) {
+			cands.add(node);
+		}
+
+		public HashSet<Long> getCands() {
+			return cands;
+		}
+	}
+
+	private Map<Long, Float> getNodePres(HashSet<Long> seeds) {
+		Map<Long, Float> ret = new HashMap<Long, Float>();
+		for (long seed : seeds) {
+			List<PresElement> elems = nodePres.get(Long.toString(seed));
+			if (elems.size() != 1) {
+				System.err.println("no prestige node :" + seed);
+			} else {
+				ret.put(seed, elems.get(0).getId());
+			}
+		}
+		return ret;
+	}
+
+	public float getNodePres(long node) {
+		List<PresElement> elems = nodePres.get(Long.toString(node));
+		if (elems.isEmpty())
+			return 0.0f;
+		else
+			return elems.get(0).getId();
 	}
 
 	private List<Graph> constructGraphs(BiState state, HashSet<Long> result) {
@@ -202,7 +297,8 @@ public class Neo4jBiKeywordSearch implements KeywordSearch {
 				long temp = root;
 				long pre = source.getValue();
 				do {
-					graph.addEdge(temp, pre);
+					if (pre != temp) // the case root == pre
+						graph.addEdge(temp, pre);
 					temp = pre;
 					pre = state.getAncestor(temp, source.getKey());
 				} while (pre != temp);
@@ -299,10 +395,73 @@ public class Neo4jBiKeywordSearch implements KeywordSearch {
 		}
 		tnx.success();
 		tnx.finish();
-		if (opCount++ % 1000 == 0) {
+		if (opCount++ % 5000 == 0) {
 			textIndex.flush();
 			keyIndex.flush();
 		}
+	}
+
+	/**
+	 * load the graph into memory and calculate it
+	 */
+	public void calcNodePres() {
+		long begin = System.currentTimeMillis();
+		// TODO implements the pagerank algorithm here
+		// load the map into memory
+		HashMap<Long, Integer> outCount = new HashMap<Long, Integer>();
+		// a <- b
+		HashMap<Long, HashSet<Long>> matrix = new HashMap<Long, HashSet<Long>>();
+		for (Node node : graphDb.getAllNodes()) {
+			HashSet<Long> vector = new HashSet<Long>();
+			matrix.put(node.getId(), vector);
+			for (Relationship rel : node.getRelationships(Direction.INCOMING)) {
+				long start = rel.getStartNode().getId();
+				vector.add(start);
+				if (!outCount.containsKey(start)) {
+					outCount.put(start, 1);
+				} else {
+					outCount.put(start, outCount.get(start) + 1);
+				}
+			}
+		}
+
+		System.out.println("load graph takes "
+				+ (System.currentTimeMillis() - begin) / 1000.0f + "s");
+		begin = System.currentTimeMillis();
+		// calculate the page rank
+		HashMap<Long, Float> newNodePresMap = new HashMap<Long, Float>();
+		HashMap<Long, Float> curNodePresMap = new HashMap<Long, Float>();
+
+		int loop = 20;
+		float rProb = 0.1f;// with rProb probability choose another node
+		for (int i = 0; i < loop; i++) {
+			for (long endPoint : matrix.keySet()) {
+				float newPres = 0.0f;
+				for (long startPoint : matrix.get(endPoint)) {
+					float nodePres = 1.0f;
+					if (curNodePresMap.containsKey(startPoint)) {
+						nodePres = curNodePresMap.get(startPoint);
+					}
+					newPres += nodePres / outCount.get(startPoint);
+				}
+				newPres = rProb / matrix.size() + (1.0f - rProb) * newPres;
+				newNodePresMap.put(endPoint, newPres);
+			}
+			curNodePresMap.clear();
+			curNodePresMap = newNodePresMap;
+			newNodePresMap = new HashMap<Long, Float>();
+			System.out.println("loop " + i + "  takes "
+					+ (System.currentTimeMillis() - begin) / 1000.0f + "s");
+			begin = System.currentTimeMillis();
+		}
+
+		for (Entry<Long, Float> rank : curNodePresMap.entrySet()) {
+			nodePres.put(Long.toString(rank.getKey()),
+					new PresElement(rank.getValue()));
+		}
+		System.out.println("flush to disk takes "
+				+ (System.currentTimeMillis() - begin) / 1000.0f + "s");
+		nodePres.flush();
 	}
 
 	@Override
@@ -315,6 +474,13 @@ public class Neo4jBiKeywordSearch implements KeywordSearch {
 		graphDb.shutdown();
 		keyIndex.close();
 		textIndex.close();
+		nodePres.close();
+	}
+
+	public void flush() {
+		keyIndex.flush();
+		textIndex.flush();
+		nodePres.flush();
 	}
 
 	public void printPerform() {
@@ -323,5 +489,83 @@ public class Neo4jBiKeywordSearch implements KeywordSearch {
 				keyIndex.getRecentPutLatency(),
 				keyIndex.getRecentRetrievelLatency()));
 		textIndex.printPerformance();
+	}
+
+	private static final String dblpPath = "data/dblp.txt";
+	public static final String graphPath = "data/bidata";
+
+	public static void main(String[] args) throws IOException {
+		// FileUtil.delete(graphPath);
+		/*
+		 DBLPPaper paper = null;
+		DblpFileReader reader = new DblpFileReader(dblpPath);
+		Neo4jBiKeywordSearch graph = new Neo4jBiKeywordSearch(graphPath);
+
+		List<Pair<Pair<String, Boolean>, Pair<String, Boolean>>> edges = null;
+
+		long start = System.currentTimeMillis();
+		int count = 0;
+		long total = 0;
+		while (null != (paper = reader.nextPaper())) {
+			edges = new LinkedList<Pair<Pair<String, Boolean>, Pair<String, Boolean>>>();
+			// id -> venue
+			edges.add(new Pair<Pair<String, Boolean>, Pair<String, Boolean>>(
+					new Pair<String, Boolean>(paper.id, true),
+					new Pair<String, Boolean>(paper.venue, true)));
+			// id -> abstracts
+			if (!paper.abstracts.isEmpty())
+				edges.add(new Pair<Pair<String, Boolean>, Pair<String, Boolean>>(
+						new Pair<String, Boolean>(paper.id, true),
+						new Pair<String, Boolean>(paper.abstracts, false)));
+			// id->year
+			edges.add(new Pair<Pair<String, Boolean>, Pair<String, Boolean>>(
+					new Pair<String, Boolean>(paper.id, true),
+					new Pair<String, Boolean>(paper.year, true)));
+
+			// id->year
+			edges.add(new Pair<Pair<String, Boolean>, Pair<String, Boolean>>(
+					new Pair<String, Boolean>(paper.id, true),
+					new Pair<String, Boolean>(paper.title, true)));
+
+			// id <- refIDs
+			for (String refID : paper.refIDs) {
+				edges.add(new Pair<Pair<String, Boolean>, Pair<String, Boolean>>(
+						new Pair<String, Boolean>(refID, true),
+						new Pair<String, Boolean>(paper.id, true)));
+			}
+			// id-> authors
+			for (String author : paper.authors) {
+				edges.add(new Pair<Pair<String, Boolean>, Pair<String, Boolean>>(
+						new Pair<String, Boolean>(paper.id, true),
+						new Pair<String, Boolean>(author, true)));
+				edges.add(new Pair<Pair<String, Boolean>, Pair<String, Boolean>>(
+						new Pair<String, Boolean>(author, true),
+						new Pair<String, Boolean>(paper.id, true)));
+			}
+			graph.addSubgraph(edges, DBLPTest.construct(edges.size()));
+
+			if (count++ % 100 == 0) {
+				long cost = (System.currentTimeMillis() - start);
+				total += cost;
+				System.out.println(String.format(
+						"opcount: %d;total time:%f s; time for last 100:%f s",
+						count, total / 1000.0f, cost / 1000.0f));
+				start = System.currentTimeMillis();
+				graph.printPerform();
+			}
+			// if (count > 11000)
+			// break;
+		}
+		System.out.println("load graph complete");
+		graph.close();
+		*/
+		Neo4jBiKeywordSearch graph = null;
+		try {
+			graph = new Neo4jBiKeywordSearch(graphPath);
+			graph.calcNodePres();
+		} finally {
+			if (graph != null)
+				graph.close();
+		}
 	}
 }

@@ -61,10 +61,12 @@ public class ComposeKeyBtree<PostElement> {
 	String dbpath;
 
 	private int cacheSize;
+	private boolean allowDuplidate = true;
 
-	public ComposeKeyBtree(String dbpath, int cacheSize) {
+	public ComposeKeyBtree(String dbpath, int cacheSize, boolean allowDuplidate) {
 		this.dbpath = dbpath;
 		this.cacheSize = cacheSize;
+		this.allowDuplidate = allowDuplidate;
 		/*
 		MBeanServer mbs = ManagementFactory.getPlatformMBeanServer();
 		try {
@@ -99,9 +101,9 @@ public class ComposeKeyBtree<PostElement> {
 	}
 
 	public void init(TupleBinding binding_,
-			Class<Comparator<byte[]>> nodeCompClass_) {
+			Class<Comparator<byte[]>> nodeCompClass_, boolean prefix) {
 		this.dbenv = new DbEnv(new File(dbpath), binding_, nodeCompClass_);
-		dbenv.setup(false, true, 1024 * 1024 * 1);
+		dbenv.setup(false, allowDuplidate, 1024 * 1024 * 1, prefix);
 	}
 
 	public void close() {
@@ -561,11 +563,11 @@ public class ComposeKeyBtree<PostElement> {
 
 	public static void main(String[] args) {
 		ComposeKeyBtree btree = new ComposeKeyBtree("data/bdbtest",
-				1024 * 1024 * 1024);
+				1024 * 1024 * 1024, true);
 		btree.init(
 				NodeIDPostElement.binding,
 				(Class<Comparator<byte[]>>) NodeIDPostElement.NodeComparator.class
-						.asSubclass(Comparator.class));
+						.asSubclass(Comparator.class), true);
 		btree.put("test", new NodeIDPostElement(1));
 		btree.put("test", new NodeIDPostElement(2));
 		btree.put("test1", new NodeIDPostElement(1));

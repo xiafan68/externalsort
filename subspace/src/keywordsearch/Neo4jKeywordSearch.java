@@ -61,11 +61,11 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 						.asSubclass(Comparator.class));
 		textIndex.init();
 
-		keyIndex = new ComposeKeyBtree(path + "/keyIndex", 1024 * 1024 * 512);
+		keyIndex = new ComposeKeyBtree(path + "/keyIndex", 1024 * 1024 * 512, false);
 		keyIndex.init(
 				NodeIDPostElement.binding,
 				(Class<Comparator<byte[]>>) NodeIDPostElement.NodeComparator.class
-						.asSubclass(Comparator.class));
+						.asSubclass(Comparator.class), true);
 		/*
 		nodeIndex = graphDb.index().forNodes(
 				"message",
@@ -234,7 +234,7 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 	private List<Graph> searchIntern(
 			Map<String, List<NodeIDPostElement>> results, int topK) {
 		DjskState state = new DjskState();
-		if (Constant.DEBUG) {
+		if (Constant.DEBUG_PROCESS) {
 			for (Entry<String, List<NodeIDPostElement>> entry : results
 					.entrySet()) {
 				System.out.println(String.format("key:%s;size:%d;",

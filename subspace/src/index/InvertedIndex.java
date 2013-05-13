@@ -48,7 +48,7 @@ public class InvertedIndex<PostElement> {
 	}
 
 	public void init() {
-		env.setup(false, true, 1024 * 1024 * 512);
+		env.setup(false, true, 1024 * 1024 * 512, true);
 	}
 
 	public Map<String, List<PostElement>> search(String keywords)

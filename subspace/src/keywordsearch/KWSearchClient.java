@@ -12,6 +12,8 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Scanner;
 
+import keywordsearch.bidirection.Neo4jBiKeywordSearch;
+
 import org.neo4j.graphdb.Node;
 
 import util.Constant;
@@ -34,7 +36,8 @@ public class KWSearchClient {
 	}
 
 	public static void main(String[] args) throws IOException {
-		KeywordSearch graphDb = new Neo4jKeywordSearch(graphPath);
+		// KeywordSearch graphDb = new Neo4jKeywordSearch(graphPath);
+		KeywordSearch graphDb = new Neo4jBiKeywordSearch("data/bidata");
 		Scanner scanner = new Scanner(System.in);
 		String line = null;
 		usage();
@@ -55,6 +58,7 @@ public class KWSearchClient {
 						continue;
 					}
 					curResult = graphDb.search("", query, topK);
+					System.out.println("num of results:" + curResult.size());
 					for (Graph graph : curResult) {
 						printGraph(graphDb, graph);
 					}
@@ -69,6 +73,7 @@ public class KWSearchClient {
 					break;
 				} else if (line.startsWith("save")) {
 					String path = line.substring("save".length());
+					FileUtil.delete(path);
 					int count = 0;
 					for (Graph graph : curResult) {
 						saveGraph(graphDb, graph, new File(path, (count++)
