@@ -1,4 +1,4 @@
-package keywordsearch;
+package keywordsearch.backward;
 
 import java.util.Iterator;
 import java.util.PriorityQueue;

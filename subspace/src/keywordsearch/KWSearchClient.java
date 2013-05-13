@@ -5,11 +5,13 @@ import graph.KeywordSearch;
 
 import java.io.DataOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Properties;
 import java.util.Scanner;
 
 import keywordsearch.bidirection.Neo4jBiKeywordSearch;
@@ -37,7 +39,12 @@ public class KWSearchClient {
 
 	public static void main(String[] args) throws IOException {
 		// KeywordSearch graphDb = new Neo4jKeywordSearch(graphPath);
-		KeywordSearch graphDb = new Neo4jBiKeywordSearch("data/bidata");
+		Properties prop = new Properties();
+		prop.load(new FileInputStream("config.property"));
+		KeywordSearch graphDb = KWSearchFactory.instance.get(
+				prop.getProperty("class"), prop.getProperty("path"));
+		System.out.println(prop);
+		// KeywordSearch graphDb = new Neo4jBiKeywordSearch("data/bidata");
 		Scanner scanner = new Scanner(System.in);
 		String line = null;
 		usage();
@@ -72,7 +79,7 @@ public class KWSearchClient {
 				} else if (line.startsWith("quit")) {
 					break;
 				} else if (line.startsWith("save")) {
-					String path = line.substring("save".length());
+					String path = line.substring("save".length()).trim();
 					FileUtil.delete(path);
 					int count = 0;
 					for (Graph graph : curResult) {
@@ -80,7 +87,7 @@ public class KWSearchClient {
 								+ ".csv").getAbsolutePath());
 					}
 				} else if (line.startsWith("del:")) {
-					FileUtil.delete(line.substring("del:".length()));
+					FileUtil.delete(line.substring("del:".length()).trim());
 				}
 				System.out.println(String.format("time elapsed:%fs",
 						(System.currentTimeMillis() - start) / 1000.0f));

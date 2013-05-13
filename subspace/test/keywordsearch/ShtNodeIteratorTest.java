@@ -1,7 +1,8 @@
 package keywordsearch;
 
 import junit.framework.Assert;
-import keywordsearch.Neo4jKeywordSearch.DjskState;
+import keywordsearch.backward.ShortestNodeIterator;
+import keywordsearch.backward.Neo4jKeywordSearch.DjskState;
 
 import org.junit.Test;
 import org.neo4j.graphdb.Node;

@@ -8,6 +8,8 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.TreeMap;
 
+import keywordsearch.backward.Neo4jKeywordSearch;
+
 import org.junit.Test;
 import org.neo4j.graphdb.Node;
 

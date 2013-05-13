@@ -1,11 +1,11 @@
-package keywordsearch;
+package keywordsearch.backward;
 
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.PriorityQueue;
 
-import keywordsearch.Neo4jKeywordSearch.DjskState;
+import keywordsearch.backward.Neo4jKeywordSearch.DjskState;
 
 import org.neo4j.graphdb.Direction;
 import org.neo4j.graphdb.Expander;

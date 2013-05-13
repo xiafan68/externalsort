@@ -1,4 +1,4 @@
-package keywordsearch;
+package keywordsearch.backward;
 
 import graph.Graph;
 import graph.KeywordSearch;
