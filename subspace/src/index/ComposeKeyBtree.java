@@ -364,6 +364,63 @@ public class ComposeKeyBtree<PostElement> {
 		remove(theKey, node);
 	}
 
+	public String firstKey() {
+		String ret = null;
+		Cursor cursor = dbenv.getNodeDb().openCursor(null, null);
+		DatabaseEntry theKey = new DatabaseEntry();
+		DatabaseEntry theData = new DatabaseEntry();
+		try {
+			OperationStatus ops = cursor.getFirst(theKey, theData,
+					LockMode.DEFAULT);
+			if (ops == OperationStatus.SUCCESS) {
+				ret = new String(theKey.getData(), ENCODE);
+			}
+		} catch (DatabaseException dbe) {
+			try {
+				System.out.println("Error removing entry " + theKey.toString());
+			} catch (Exception willNeverOccur) {
+			}
+			// txn.abort();
+			throw dbe;
+		} catch (UnsupportedEncodingException e) {
+			e.printStackTrace();
+		} finally {
+			cursor.close();
+			cursor = null;
+		}
+		return ret;
+	}
+
+	public String nextKey(String key) {
+		String ret = null;
+		Cursor cursor = dbenv.getNodeDb().openCursor(null, null);
+		DatabaseEntry theKey = composeKey(key);
+		DatabaseEntry theData = new DatabaseEntry();
+		try {
+			OperationStatus ops = cursor.getSearchKey(theKey, theData,
+					LockMode.DEFAULT);
+			if (ops == OperationStatus.SUCCESS) {
+				ops = cursor.getNextNoDup(theKey, theData, LockMode.DEFAULT);
+				if (ops == OperationStatus.SUCCESS) {
+					ret = new String(theKey.getData(), ENCODE);
+				}
+			}
+		} catch (DatabaseException dbe) {
+			try {
+				System.out.println("Error removing entry " + theKey.toString());
+			} catch (Exception willNeverOccur) {
+			}
+			// txn.abort();
+			throw dbe;
+		} catch (UnsupportedEncodingException e) {
+			e.printStackTrace();
+		} finally {
+			cursor.close();
+			cursor = null;
+		}
+		return ret;
+	}
+
 	public void remove(String key) {
 		long startTime = System.currentTimeMillis();
 		Cursor cursor = dbenv.getNodeDb().openCursor(null, null);

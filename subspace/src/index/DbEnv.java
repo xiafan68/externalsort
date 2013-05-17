@@ -83,7 +83,8 @@ public class DbEnv {
 		myDbConfig.setTransactional(false);
 
 		myDbConfig.setDeferredWrite(true);
-		myDbConfig.setDuplicateComparator(nodeCompClass);
+		if (nodeCompClass != null)
+			myDbConfig.setDuplicateComparator(nodeCompClass);
 		// myDbConfig.setCacheMode(CacheMode.DYNAMIC);
 		// mutableConfig.setCacheSize(cacheSize);
 		// mutableConfig.setCacheSize(1024*1024*1024);

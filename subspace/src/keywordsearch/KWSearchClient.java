@@ -14,8 +14,6 @@ import java.util.List;
 import java.util.Properties;
 import java.util.Scanner;
 
-import keywordsearch.bidirection.Neo4jBiKeywordSearch;
-
 import org.neo4j.graphdb.Node;
 
 import util.Constant;
@@ -24,7 +22,7 @@ import xiafan.file.FileUtil;
 import xiafan.util.Pair;
 
 public class KWSearchClient {
-	private static final String graphPath = "data/graphdata";
+	// private static final String graphPath = "data/graphdata";
 
 	private static void usage() {
 		System.out
@@ -52,6 +50,7 @@ public class KWSearchClient {
 			List<Graph> curResult = null;
 			while (null != (line = scanner.nextLine())) {
 				long start = System.currentTimeMillis();
+				long cost = 0;
 				if (line.startsWith("q:")) {
 					// this is q keyword query
 					String query = line.substring("q:".length(),
@@ -65,6 +64,7 @@ public class KWSearchClient {
 						continue;
 					}
 					curResult = graphDb.search("", query, topK);
+					cost = System.currentTimeMillis() - start;
 					System.out.println("num of results:" + curResult.size());
 					for (Graph graph : curResult) {
 						printGraph(graphDb, graph);
@@ -89,8 +89,10 @@ public class KWSearchClient {
 				} else if (line.startsWith("del:")) {
 					FileUtil.delete(line.substring("del:".length()).trim());
 				}
+				cost = (cost == 0 ? (System.currentTimeMillis() - start) : cost);
 				System.out.println(String.format("time elapsed:%fs",
-						(System.currentTimeMillis() - start) / 1000.0f));
+						cost / 1000.0f));
+				PerformanceTracker.instance.print();
 				System.out.print(">");
 			}
 		} finally {

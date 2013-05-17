@@ -68,13 +68,13 @@ public class BiSingleIterator implements
 	public Triple<Long, Integer, Float> next() {
 		Triple<Long, Integer, Float> triple = queue.poll();
 		queueIndex.remove(triple.arg0);
-		PerformanceTracker.instance.incre(PerformanceTracker.TOUCHED, 1);
+		PerformanceTracker.instance.incre(PerformanceTracker.EXPLORED, 1);
 		return triple;
 	}
 
 	public void addNode(Triple<Long, Integer, Float> newNode) {
 		if (!visitedNode.contains(newNode.arg0)) {
-			PerformanceTracker.instance.incre(PerformanceTracker.EXPLORED, 1);
+			PerformanceTracker.instance.incre(PerformanceTracker.TOUCHED, 1);
 			visitedNode.add(newNode.arg0);
 			queue.add(newNode);
 			queueIndex.put(newNode.arg0, newNode);

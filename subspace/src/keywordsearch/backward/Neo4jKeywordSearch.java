@@ -61,7 +61,8 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 						.asSubclass(Comparator.class));
 		textIndex.init();
 
-		keyIndex = new ComposeKeyBtree(path + "/keyIndex", 1024 * 1024 * 512, false);
+		keyIndex = new ComposeKeyBtree(path + "/keyIndex", 1024 * 1024 * 512,
+				true);
 		keyIndex.init(
 				NodeIDPostElement.binding,
 				(Class<Comparator<byte[]>>) NodeIDPostElement.NodeComparator.class
@@ -234,7 +235,7 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 	private List<Graph> searchIntern(
 			Map<String, List<NodeIDPostElement>> results, int topK) {
 		DjskState state = new DjskState();
-		if (Constant.DEBUG_PROCESS) {
+		if (Constant.DEBUG_INTERM) {
 			for (Entry<String, List<NodeIDPostElement>> entry : results
 					.entrySet()) {
 				System.out.println(String.format("key:%s;size:%d;",
@@ -482,5 +483,10 @@ public class Neo4jKeywordSearch implements KeywordSearch {
 	@Override
 	public Node getNodeById(long id) {
 		return graphDb.getNodeById(id);
+	}
+
+	@Override
+	public String toString() {
+		return "Neo4jKeywordSearch []";
 	}
 }
