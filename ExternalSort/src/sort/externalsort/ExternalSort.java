@@ -1,10 +1,8 @@
 package sort.externalsort;
 
-import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileFilter;
-import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.util.Arrays;
@@ -14,8 +12,7 @@ import java.util.List;
 import java.util.Map.Entry;
 import java.util.TreeMap;
 
-import output.AutoSwithWriter;
-
+import output.AutoSwitchWriter;
 import datasource.DirDataSource;
 import datasource.FilesDataSource;
 import datasource.IDataSource;
@@ -29,7 +26,6 @@ public class ExternalSort {
 	public static String tmpFilePrefix = "externalsort";
 	public static String tmpFileDelimeter = ".";
 	public static String delimeter = " ";
-	private IRecordFactory recordFactory = SimpleStringRecordFactory.instance;
 
 	static {
 		String tmpDirStr = System.getProperty("tmpDir", "/tmp");
@@ -38,8 +34,10 @@ public class ExternalSort {
 
 	IDataSource source = null;
 	BufferedWriter writer = null;
-	File outputFile = null;
+	File outputFile;
 	int recordsPerFile;
+	String inputFile;
+	IRecordFactory recordFactory = SimpleStringRecordFactory.instance;
 	IMemorySort sort = new MemorySort();
 
 	public static Comparator<IRecord> comp = new Comparator<IRecord>() {
@@ -64,15 +62,20 @@ public class ExternalSort {
 	 */
 	public ExternalSort(String inputDir, String outFile, int recordsPerFile) {
 		this.recordsPerFile = recordsPerFile;
-		this.source = new DirDataSource(inputDir, recordFactory);
+		// this.source = new DirDataSource(inputDir, recordFactory);
 		outputFile = new File(outFile);
-		this.writer = new BufferedWriter(new AutoSwithWriter(outFile, 1024*1024*64));
+		this.inputFile = inputDir;
 	}
 
 	/**
 	 * 归并排序
 	 */
 	public void sort() throws IOException {
+		this.source = new DirDataSource(inputFile, recordFactory);
+		// this.writer = new BufferedWriter(new AutoSwitchWriter(
+		// outputFile.getAbsolutePath(), 1024 * 1024 * 64));
+		this.writer = new BufferedWriter(new FileWriter(
+				outputFile.getAbsolutePath()));
 		split();
 		while (!merge()) {
 			System.out.println("iteration " + iteration + " completes");

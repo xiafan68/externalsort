@@ -14,7 +14,7 @@ import java.io.Writer;
  * @author xiafan
  * 
  */
-public class AutoSwithWriter extends Writer {
+public class AutoSwitchWriter extends Writer {
 	private BufferedWriter writer = null;
 	private File file = null;
 	private String outputDir = null;
@@ -27,7 +27,7 @@ public class AutoSwithWriter extends Writer {
 	 *            输出目录，所有的输出文件都将创建在该目录下面
 	 * @param limit_
 	 */
-	public AutoSwithWriter(String outputDir_, int limit_) {
+	public AutoSwitchWriter(String outputDir_, int limit_) {
 		outputDir = outputDir_;
 		limit = limit_;
 	}

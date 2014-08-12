@@ -18,7 +18,7 @@ import java.util.List;
 public class DirDataSource extends FilesDataSource {
 	public DirDataSource(String dir, IRecordFactory recordFactory) {
 		super(recordFactory);
-		
+
 		File file = new File(dir);
 		List<File> files = null;
 		if (file.exists() && file.isDirectory()) {
@@ -40,6 +40,8 @@ public class DirDataSource extends FilesDataSource {
 
 			}));
 			fileIter = files.iterator();
+		} else if (file.exists() && file.isFile()) {
+			fileIter = Arrays.asList(file).iterator();
 		}
 	}
 }
